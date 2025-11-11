@@ -31,46 +31,30 @@ class MyAgent(Agent):
         )
 
 
-# This is the code that i have added
-
-
-    async def stt_node(
-            self, audio, model_settings):
+    async def stt_node(self, audio, model_settings):
+        """
+        Custom STT processing node that filters out filler words before emitting
+        final transcription events. It wraps the default agent STT node and
+        checks final transcripts for unwanted fillers.
         """
 
-        A node in the processing pipeline that transcribes audio frames into speech events.
+        stt_stream = Agent.default.stt_node(self, audio, model_settings)
 
-        By default, this node uses a Speech-To-Text (STT) capability from the current agent.
-        If the STT implementation does not support streaming natively, a VAD (Voice Activity
-        Detection) mechanism is required to wrap the STT.
+        ignore_tokens = ["umm", "um", "uh", "haan", "okay", "understood", "continue"]
 
-        You can override this node with your own implementation for more flexibility (e.g.,
-        custom pre-processing of audio, additional buffering, or alternative STT strategies).
+        async for evt in stt_stream:
+            if evt.type == "final_transcript":
+                transcript = evt.alternatives[0].text.lower().strip()
 
-        Args:
-            audio (AsyncIterable[rtc.AudioFrame]): An asynchronous stream of audio frames.
-            model_settings (ModelSettings): Configuration and parameters for model execution.
+                if any(word in transcript for word in ignore_tokens):
+                    print("Filtered filler phrase:", transcript)
+                    continue
 
-        Yields:
-            stt.SpeechEvent: An event containing transcribed text or other STT-related data.
-        """
+                yield evt
 
-        se = Agent.default.stt_node(self, audio, model_settings)
-        async for event in se:
-            if event.type == "final_transcript":
-                filler_words = ["umm", "uh", "um",
-                                "haan", "understood", "okay","continue"]
-                text = event.alternatives[0].text.lower()
+        yield stt_stream
 
-                if any(filler in text for filler in filler_words):
-                    print("found filler word:" , text)
-                  
-                    print ()
 
-                else:
-                    yield event
-
-        yield se
 
     @function_tool
     async def lookup_weather(self, context: RunContext, location: str):
@@ -84,13 +68,9 @@ async def entrypoint(ctx: JobContext):
     logger.info("Starting simplified agent session...")
 
     session = AgentSession(
-        # stt="deepgram/base",
         stt="assemblyai/universal-streaming:en",
-        # llm="openai/gpt-3.5-turbo",
         llm="openai/gpt-4.1-mini",
-        # tts="elevenlabs/eleven_multilingual_v2",
         tts="cartesia/sonic-2:9626c31c-bec5-4cca-baa8-f8ba9e84c8bc",
-        # Minimal configuration for stability
         preemptive_generation=False,
         allow_interruptions=True
     )
